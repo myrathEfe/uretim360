@@ -37,7 +37,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
     ports:
-      - "8080:8080"
+      - "1453:1453"
 
   frontend:
     build:
@@ -57,4 +57,3 @@ services:
 
 volumes:
   postgres-data:
-

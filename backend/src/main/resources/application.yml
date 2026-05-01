@@ -23,7 +23,7 @@ spring:
       write-dates-as-timestamps: false
 
 server:
-  port: 8080
+  port: 1453
 
 jwt:
   secret: ${JWT_SECRET}
@@ -37,4 +37,3 @@ app:
 logging:
   level:
     org.springframework.security: INFO
-

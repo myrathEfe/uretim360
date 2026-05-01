@@ -23,7 +23,7 @@ Bu komut:
 ## 3. Uygulamayı aç
 
 - Frontend: [http://localhost:3000](http://localhost:3000)
-- Backend API: [http://localhost:8080](http://localhost:8080)
+- Backend API: [http://localhost:1453](http://localhost:1453)
 
 ## 4. Demo giriş bilgileri
 
@@ -61,11 +61,10 @@ npm install
 npm run dev
 ```
 
-Bu senaryoda backend `http://localhost:8080`, frontend `http://localhost:3000` adresinde çalışır.
+Bu senaryoda backend `http://localhost:1453`, frontend `http://localhost:3000` adresinde çalışır.
 
 ## 7. Olası Notlar
 
 - Maven veya npm bağımlılıkları ilk build sırasında internet erişimi ister.
 - Backend JWT secret değeri kısa olmamalıdır; örnek `.env.example` içinde uygun uzunlukta verilmiştir.
 - Frontend login akışı için `NEXTAUTH_URL` ve `API_INTERNAL_URL` değerleri doğru kalmalıdır.
-

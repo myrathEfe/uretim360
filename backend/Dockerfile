@@ -8,6 +8,5 @@ RUN mvn -q clean package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/target/meslite-backend-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 8080
+EXPOSE 1453
 ENTRYPOINT ["java","-jar","/app/app.jar"]
-

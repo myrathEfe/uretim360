@@ -93,7 +93,7 @@ docker compose up --build
 Servisler:
 
 - Frontend: [http://localhost:3000](http://localhost:3000)
-- Backend: [http://localhost:8080](http://localhost:8080)
+- Backend: [http://localhost:1453](http://localhost:1453)
 - PostgreSQL: `localhost:5432`
 
 ## Roller ve Demo Giriş Bilgileri
@@ -161,4 +161,3 @@ Bu yaklaşımda mevcut `Material`, `Department`, `Machine` ve `ProductionRecord`
 - Dashboard ekranı: [page.tsx](/Users/efe/Desktop/uretim360/frontend/app/(dashboard)/dashboard/page.tsx)
 - Compose dosyası: [docker-compose.yml](/Users/efe/Desktop/uretim360/docker-compose.yml)
 - Çalıştırma rehberi: [CALISTIRMA.md](/Users/efe/Desktop/uretim360/CALISTIRMA.md)
-
