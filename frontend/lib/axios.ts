@@ -7,9 +7,19 @@ export interface ApiEnvelope<T> {
   timestamp: string;
 }
 
+function getApiBaseUrl() {
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  if (!apiBaseUrl) {
+    throw new Error("NEXT_PUBLIC_API_URL tanimli degil. Frontend build ortam degiskenlerini kontrol edin.");
+  }
+
+  return apiBaseUrl;
+}
+
 export function createApiClient(accessToken?: string) {
   const client = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL,
+    baseURL: getApiBaseUrl(),
     headers: {
       "Content-Type": "application/json"
     }
@@ -49,4 +59,3 @@ export async function apiDelete(path: string, accessToken: string) {
   const { data } = await createApiClient(accessToken).delete<ApiEnvelope<null>>(path);
   return data;
 }
-

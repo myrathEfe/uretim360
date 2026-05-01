@@ -10,6 +10,7 @@ const loginSchema = z.object({
 const apiBase = process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   session: {
     strategy: "jwt"
   },
@@ -88,4 +89,3 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }
   }
 });
-
