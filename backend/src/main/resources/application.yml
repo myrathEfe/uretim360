@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: meslite-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/${POSTGRES_DB:meslite}
+    username: ${POSTGRES_USER:meslite_user}
+    password: ${POSTGRES_PASSWORD:meslite_pass}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration-hours: 8
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+
+logging:
+  level:
+    org.springframework.security: INFO
+

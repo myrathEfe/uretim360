@@ -1,0 +1,8 @@
+.DS_Store
+.env
+.m2
+node_modules
+.next
+frontend/node_modules
+backend/target
+postgres-data
