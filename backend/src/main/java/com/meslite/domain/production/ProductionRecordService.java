@@ -53,6 +53,37 @@ public class ProductionRecordService {
 
     @Transactional
     public ProductionRecordResponse create(ProductionRecordCreateRequest request) {
+        ProductionRecord record = new ProductionRecord();
+        applyRequest(record, request, true);
+        ProductionRecord saved = productionRecordRepository.save(record);
+        materialService.rebuildMaterialState(saved.getMaterial().getId());
+        alertService.evaluateWasteAlert(saved);
+        return productionMapper.toResponse(saved);
+    }
+
+    @Transactional
+    public ProductionRecordResponse update(Long id, ProductionRecordCreateRequest request) {
+        ProductionRecord record = getRecord(id);
+        Long previousMaterialId = record.getMaterial().getId();
+        applyRequest(record, request, false);
+        ProductionRecord saved = productionRecordRepository.save(record);
+        materialService.rebuildMaterialState(previousMaterialId);
+        if (!previousMaterialId.equals(saved.getMaterial().getId())) {
+            materialService.rebuildMaterialState(saved.getMaterial().getId());
+        }
+        return productionMapper.toResponse(saved);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        ProductionRecord record = getRecord(id);
+        Material material = record.getMaterial();
+        materialStageHistoryRepository.findAllByProductionRecordId(id).forEach(materialStageHistoryRepository::delete);
+        productionRecordRepository.delete(record);
+        materialService.rebuildMaterialState(material.getId());
+    }
+
+    private void applyRequest(ProductionRecord record, ProductionRecordCreateRequest request, boolean isCreate) {
         if (request.getOutputQty().compareTo(request.getInputQty()) > 0) {
             throw new BusinessException("Çıktı miktarı girdi miktarından büyük olamaz.", HttpStatus.BAD_REQUEST);
         }
@@ -63,33 +94,18 @@ public class ProductionRecordService {
 
         Material material = materialService.getMaterial(request.getMaterialId());
         Shift shift = resolveShift(request.getShiftId());
-        User actor = userRepository.findByIdAndIsActiveTrue(SecurityUtils.currentUser().id())
-                .orElseThrow(() -> new ResourceNotFoundException("Kullanıcı bulunamadı."));
-
-        ProductionRecord record = new ProductionRecord();
         record.setMaterial(material);
         record.setMachine(machine);
         record.setDepartment(machine.getDepartment());
         record.setShift(shift);
-        record.setRecordedBy(actor);
+        if (isCreate) {
+            User actor = userRepository.findByIdAndIsActiveTrue(SecurityUtils.currentUser().id())
+                    .orElseThrow(() -> new ResourceNotFoundException("Kullanıcı bulunamadı."));
+            record.setRecordedBy(actor);
+        }
         record.setInputQty(request.getInputQty());
         record.setOutputQty(request.getOutputQty());
         record.setNotes(request.getNotes());
-
-        ProductionRecord saved = productionRecordRepository.save(record);
-        materialService.updateMaterialPositionFromProduction(material, machine, saved);
-        alertService.evaluateWasteAlert(saved);
-
-        return productionMapper.toResponse(saved);
-    }
-
-    @Transactional
-    public void delete(Long id) {
-        ProductionRecord record = getRecord(id);
-        Material material = record.getMaterial();
-        materialStageHistoryRepository.findAllByProductionRecordId(id).forEach(materialStageHistoryRepository::delete);
-        productionRecordRepository.delete(record);
-        recalculateMaterialTotals(material.getId());
     }
 
     private Shift resolveShift(Long shiftId) {
@@ -123,18 +139,4 @@ public class ProductionRecordService {
         }
     }
 
-    private void recalculateMaterialTotals(Long materialId) {
-        Material material = materialService.getMaterial(materialId);
-        List<ProductionRecord> records = productionRecordRepository.findAllByMaterialIdOrderByRecordedAtAsc(materialId);
-        material.setTotalInputQty(records.stream().map(ProductionRecord::getInputQty).reduce(BigDecimal.ZERO, BigDecimal::add));
-        material.setTotalOutputQty(records.stream().map(ProductionRecord::getOutputQty).reduce(BigDecimal.ZERO, BigDecimal::add));
-        if (records.isEmpty()) {
-            material.setCurrentMachine(null);
-            material.setCurrentDepartment(null);
-        } else {
-            ProductionRecord latest = records.getLast();
-            material.setCurrentMachine(latest.getMachine());
-            material.setCurrentDepartment(latest.getDepartment());
-        }
-    }
 }

@@ -5,6 +5,7 @@ import com.meslite.common.ResourceNotFoundException;
 import com.meslite.domain.shift.dto.ShiftCreateRequest;
 import com.meslite.domain.shift.dto.ShiftResponse;
 import com.meslite.domain.shift.dto.ShiftUpdateRequest;
+import com.meslite.domain.production.ProductionRecordRepository;
 import com.meslite.domain.user.Role;
 import com.meslite.domain.user.User;
 import com.meslite.domain.user.UserRepository;
@@ -22,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ShiftService {
 
     private final ShiftRepository shiftRepository;
+    private final ProductionRecordRepository productionRecordRepository;
     private final UserRepository userRepository;
     private final ShiftMapper shiftMapper;
 
@@ -60,6 +62,16 @@ public class ShiftService {
         shift.setEndTime(OffsetDateTime.now());
         shift.setIsActive(false);
         return shiftMapper.toResponse(shiftRepository.save(shift));
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        Shift shift = getShift(id);
+        validateOwnership(shift);
+        if (productionRecordRepository.existsByShiftId(id)) {
+            throw new BusinessException("Üretim kaydı içeren vardiyalar silinemez.", HttpStatus.BAD_REQUEST);
+        }
+        shiftRepository.delete(shift);
     }
 
     private Shift getShift(Long id) {
@@ -104,4 +116,3 @@ public class ShiftService {
         }
     }
 }
-

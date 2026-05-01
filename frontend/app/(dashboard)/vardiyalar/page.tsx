@@ -7,15 +7,34 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiGet, apiPatch, apiPost } from "@/lib/axios";
+import { Select } from "@/components/ui/select";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/lib/axios";
 import { formatDate } from "@/lib/utils";
 import type { Shift } from "@/types/shift";
+import type { User } from "@/types/user";
+
+type ShiftForm = {
+  name: string;
+  startTime: string;
+  supervisorId: string;
+  status: "active" | "closed";
+};
+
+const toDateTimeLocal = (value?: string | null) => (value ? new Date(value).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16));
 
 export default function ShiftsPage() {
   const { data: session } = useSession();
+  const canManage = session?.user.role === "ADMIN" || session?.user.role === "SHIFT_SUPERVISOR";
+  const isAdmin = session?.user.role === "ADMIN";
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [name, setName] = useState("Yeni Vardiya");
-  const [startTime, setStartTime] = useState(new Date().toISOString().slice(0, 16));
+  const [supervisors, setSupervisors] = useState<User[]>([]);
+  const [editingShiftId, setEditingShiftId] = useState<number | null>(null);
+  const [form, setForm] = useState<ShiftForm>({
+    name: "Yeni Vardiya",
+    startTime: new Date().toISOString().slice(0, 16),
+    supervisorId: "",
+    status: "active"
+  });
 
   const load = async () => {
     if (!session?.user.accessToken) {
@@ -23,18 +42,71 @@ export default function ShiftsPage() {
     }
     const data = await apiGet<Shift[]>("/api/shifts", session.user.accessToken);
     setShifts(data);
+    if (isAdmin) {
+      const users = await apiGet<User[]>("/api/users", session.user.accessToken);
+      const shiftSupervisors = users.filter((user) => user.role === "SHIFT_SUPERVISOR");
+      setSupervisors(shiftSupervisors);
+      if (!editingShiftId && !form.supervisorId && shiftSupervisors[0]) {
+        setForm((current) => ({ ...current, supervisorId: String(shiftSupervisors[0].id) }));
+      }
+    }
   };
 
   useEffect(() => {
     void load();
-  }, [session?.user.accessToken]);
+  }, [session?.user.accessToken, isAdmin]);
 
-  const createShift = async () => {
+  const resetForm = () => {
+    setEditingShiftId(null);
+    setForm({
+      name: "Yeni Vardiya",
+      startTime: new Date().toISOString().slice(0, 16),
+      supervisorId: supervisors[0] ? String(supervisors[0].id) : "",
+      status: "active"
+    });
+  };
+
+  const saveShift = async () => {
     if (!session?.user.accessToken) {
       return;
     }
-    await apiPost("/api/shifts", { name, startTime: new Date(startTime).toISOString() }, session.user.accessToken);
+
+    if (editingShiftId) {
+      const existing = shifts.find((shift) => shift.id === editingShiftId);
+      await apiPut(
+        `/api/shifts/${editingShiftId}`,
+        {
+          name: form.name,
+          startTime: new Date(form.startTime).toISOString(),
+          supervisorId: isAdmin && form.supervisorId ? Number(form.supervisorId) : null,
+          endTime: form.status === "closed" ? (existing?.endTime ?? new Date().toISOString()) : null,
+          isActive: form.status === "active"
+        },
+        session.user.accessToken
+      );
+    } else {
+      await apiPost(
+        "/api/shifts",
+        {
+          name: form.name,
+          startTime: new Date(form.startTime).toISOString(),
+          supervisorId: isAdmin && form.supervisorId ? Number(form.supervisorId) : null
+        },
+        session.user.accessToken
+      );
+    }
     await load();
+    resetForm();
+  };
+
+  const startEdit = (shift: Shift) => {
+    setEditingShiftId(shift.id);
+    setForm({
+      name: shift.name,
+      startTime: toDateTimeLocal(shift.startTime),
+      supervisorId: shift.supervisorId ? String(shift.supervisorId) : "",
+      status: shift.isActive ? "active" : "closed"
+    });
   };
 
   const endShift = async (id: number) => {
@@ -43,26 +115,69 @@ export default function ShiftsPage() {
     }
     await apiPatch(`/api/shifts/${id}/end`, undefined, session.user.accessToken);
     await load();
+    if (editingShiftId === id) {
+      resetForm();
+    }
+  };
+
+  const removeShift = async (id: number) => {
+    if (!session?.user.accessToken || !window.confirm("Bu vardiyayı silmek istiyor musunuz?")) {
+      return;
+    }
+    await apiDelete(`/api/shifts/${id}`, session.user.accessToken);
+    await load();
+    if (editingShiftId === id) {
+      resetForm();
+    }
   };
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Vardiyalar" description="Aktif vardiya akışını başlatın, izleyin ve gerektiğinde sonlandırın." />
-      {(session?.user.role === "ADMIN" || session?.user.role === "SHIFT_SUPERVISOR") ? (
+      <PageHeader
+        title="Vardiyalar"
+        description="Aktif vardiya akışını başlatın, izleyin ve gerektiğinde sonlandırın."
+        action={canManage ? <Button onClick={resetForm}>{editingShiftId ? "Yeni Form" : "Formu Temizle"}</Button> : null}
+      />
+      {canManage ? (
         <Card>
           <CardHeader>
-            <CardTitle>Vardiya Oluştur</CardTitle>
+            <CardTitle>{editingShiftId ? "Vardiya Güncelle" : "Vardiya Oluştur"}</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <div>
               <Label>Vardiya Adı</Label>
-              <Input value={name} onChange={(event) => setName(event.target.value)} />
+              <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
             </div>
             <div>
               <Label>Başlangıç</Label>
-              <Input type="datetime-local" value={startTime} onChange={(event) => setStartTime(event.target.value)} />
+              <Input type="datetime-local" value={form.startTime} onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))} />
             </div>
-            <Button onClick={createShift}>Oluştur</Button>
+            {isAdmin ? (
+              <div>
+                <Label>Vardiya Şefi</Label>
+                <Select value={form.supervisorId} onChange={(event) => setForm((current) => ({ ...current, supervisorId: event.target.value }))}>
+                  <option value="">Şef seçin</option>
+                  {supervisors.map((supervisor) => (
+                    <option key={supervisor.id} value={supervisor.id}>
+                      {supervisor.fullName}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : null}
+            {editingShiftId ? (
+              <div>
+                <Label>Durum</Label>
+                <Select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as ShiftForm["status"] }))}>
+                  <option value="active">Aktif</option>
+                  <option value="closed">Kapalı</option>
+                </Select>
+              </div>
+            ) : null}
+            <div className="flex items-end gap-2">
+              <Button onClick={saveShift}>{editingShiftId ? "Güncelle" : "Oluştur"}</Button>
+              {editingShiftId ? <Button variant="outline" onClick={resetForm}>Vazgeç</Button> : null}
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -82,10 +197,20 @@ export default function ShiftsPage() {
                 <span className={`rounded-full px-3 py-1 text-xs font-semibold ${shift.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
                   {shift.isActive ? "Aktif" : "Kapalı"}
                 </span>
-                {shift.isActive && (session?.user.role === "ADMIN" || session?.user.role === "SHIFT_SUPERVISOR") ? (
-                  <Button variant="outline" onClick={() => endShift(shift.id)}>
-                    Vardiyayı Bitir
-                  </Button>
+                {canManage ? (
+                  <>
+                    <Button variant="outline" onClick={() => startEdit(shift)}>
+                      Düzenle
+                    </Button>
+                    {shift.isActive ? (
+                      <Button variant="outline" onClick={() => endShift(shift.id)}>
+                        Vardiyayı Bitir
+                      </Button>
+                    ) : null}
+                    <Button variant="destructive" onClick={() => void removeShift(shift.id)}>
+                      Sil
+                    </Button>
+                  </>
                 ) : null}
               </div>
             </div>
@@ -95,4 +220,3 @@ export default function ShiftsPage() {
     </div>
   );
 }
-

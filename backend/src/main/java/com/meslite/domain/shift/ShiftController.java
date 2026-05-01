@@ -9,6 +9,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,5 +49,11 @@ public class ShiftController {
     public ResponseEntity<ApiResponse<ShiftResponse>> endShift(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(shiftService.endShift(id)));
     }
-}
 
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','SHIFT_SUPERVISOR') and @accessControlService.canAccessShift(authentication, #id)")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
+        shiftService.delete(id);
+        return ResponseEntity.ok(ApiResponse.success(null, "Vardiya silindi."));
+    }
+}

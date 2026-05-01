@@ -27,6 +27,8 @@ public interface ProductionRecordRepository extends JpaRepository<ProductionReco
     @EntityGraph(attributePaths = {"material", "machine", "machine.department", "department", "shift", "recordedBy"})
     List<ProductionRecord> findAllByMaterialIdOrderByRecordedAtAsc(Long materialId);
 
+    boolean existsByShiftId(Long shiftId);
+
     List<ProductionRecord> findAllByRecordedAtBetweenOrderByRecordedAtAsc(OffsetDateTime start, OffsetDateTime end);
 
     @Query("""

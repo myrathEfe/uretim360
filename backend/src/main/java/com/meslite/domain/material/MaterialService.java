@@ -11,12 +11,16 @@ import com.meslite.domain.material.dto.MaterialCreateRequest;
 import com.meslite.domain.material.dto.MaterialHistoryResponse;
 import com.meslite.domain.material.dto.MaterialResponse;
 import com.meslite.domain.material.dto.MaterialUpdateRequest;
+import com.meslite.domain.production.ProductionRecord;
+import com.meslite.domain.production.ProductionRecordRepository;
 import com.meslite.domain.user.Role;
 import com.meslite.security.CustomUserPrincipal;
 import com.meslite.security.SecurityUtils;
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.time.Year;
 import java.util.List;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,6 +35,7 @@ public class MaterialService {
     private final TrackingCodeSequenceRepository trackingCodeSequenceRepository;
     private final DepartmentRepository departmentRepository;
     private final MachineRepository machineRepository;
+    private final ProductionRecordRepository productionRecordRepository;
     private final MaterialMapper materialMapper;
 
     public List<MaterialResponse> getAll() {
@@ -75,6 +80,8 @@ public class MaterialService {
         Material material = getMaterial(id);
         enforceSupervisorDepartment(material.getCurrentDepartment() != null ? material.getCurrentDepartment().getId() : null);
 
+        Department previousDepartment = material.getCurrentDepartment();
+        Machine previousMachine = material.getCurrentMachine();
         Department department = resolveDepartment(request.getCurrentDepartmentId());
         Machine machine = resolveMachine(request.getCurrentMachineId(), department.getId());
 
@@ -83,7 +90,21 @@ public class MaterialService {
         material.setCurrentMachine(machine);
         material.setIsCompleted(request.getIsCompleted());
         Material saved = materialRepository.save(material);
+        if (!Objects.equals(previousDepartment != null ? previousDepartment.getId() : null, department.getId())
+                || !Objects.equals(previousMachine != null ? previousMachine.getId() : null, machine != null ? machine.getId() : null)) {
+            syncManualPositionHistory(saved);
+        }
         return materialMapper.toResponse(saved);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        Material material = getMaterial(id);
+        if (!productionRecordRepository.findAllByMaterialIdOrderByRecordedAtAsc(id).isEmpty()) {
+            throw new BusinessException("Üretim kaydı olan malzemeler silinemez.", HttpStatus.BAD_REQUEST);
+        }
+        materialStageHistoryRepository.deleteAllByMaterialId(id);
+        materialRepository.delete(material);
     }
 
     public List<MaterialHistoryResponse> getHistory(Long id) {
@@ -112,14 +133,49 @@ public class MaterialService {
     }
 
     @Transactional
-    public void recalculateAfterProductionDelete(Material material) {
-        List<com.meslite.domain.production.ProductionRecord> records = new java.util.ArrayList<>();
-        material.setTotalInputQty(records.stream()
-                .map(com.meslite.domain.production.ProductionRecord::getInputQty)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
-        material.setTotalOutputQty(records.stream()
-                .map(com.meslite.domain.production.ProductionRecord::getOutputQty)
-                .reduce(BigDecimal.ZERO, BigDecimal::add));
+    public void rebuildMaterialState(Long materialId) {
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResourceNotFoundException("Malzeme bulunamadı."));
+        List<ProductionRecord> records = productionRecordRepository.findAllByMaterialIdOrderByRecordedAtAsc(materialId);
+
+        Long manualDepartmentId = material.getCurrentDepartment() != null ? material.getCurrentDepartment().getId() : null;
+        Long manualMachineId = material.getCurrentMachine() != null ? material.getCurrentMachine().getId() : null;
+
+        materialStageHistoryRepository.deleteAllByMaterialId(materialId);
+        material.setTotalInputQty(records.stream().map(ProductionRecord::getInputQty).reduce(BigDecimal.ZERO, BigDecimal::add));
+        material.setTotalOutputQty(records.stream().map(ProductionRecord::getOutputQty).reduce(BigDecimal.ZERO, BigDecimal::add));
+
+        if (records.isEmpty()) {
+            materialRepository.save(material);
+            createInitialHistoryIfNeeded(material);
+            return;
+        }
+
+        ProductionRecord latestRecord = records.getLast();
+        boolean hasManualPosition = !Objects.equals(manualDepartmentId, latestRecord.getDepartment().getId())
+                || !Objects.equals(manualMachineId, latestRecord.getMachine().getId());
+
+        OffsetDateTime nextLeftAt = null;
+        for (int index = records.size() - 1; index >= 0; index--) {
+            ProductionRecord record = records.get(index);
+            createStageHistory(record.getMaterial(), record.getMachine(), record.getDepartment(), record, record.getRecordedAt(), nextLeftAt);
+            nextLeftAt = record.getRecordedAt();
+        }
+
+        if (hasManualPosition) {
+            createStageHistory(
+                    material,
+                    material.getCurrentMachine(),
+                    material.getCurrentDepartment(),
+                    null,
+                    material.getUpdatedAt().isAfter(latestRecord.getRecordedAt()) ? material.getUpdatedAt() : latestRecord.getRecordedAt(),
+                    null
+            );
+        } else {
+            material.setCurrentMachine(latestRecord.getMachine());
+            material.setCurrentDepartment(latestRecord.getDepartment());
+        }
+
         materialRepository.save(material);
     }
 
@@ -152,14 +208,60 @@ public class MaterialService {
         return material;
     }
 
-    private void createStageHistory(Material material, Machine machine, Department department, com.meslite.domain.production.ProductionRecord record) {
+    private void createStageHistory(
+            Material material,
+            Machine machine,
+            Department department,
+            com.meslite.domain.production.ProductionRecord record
+    ) {
+        createStageHistory(material, machine, department, record, record != null ? record.getRecordedAt() : OffsetDateTime.now(), null);
+    }
+
+    private void createStageHistory(
+            Material material,
+            Machine machine,
+            Department department,
+            com.meslite.domain.production.ProductionRecord record,
+            OffsetDateTime enteredAt,
+            OffsetDateTime leftAt
+    ) {
         MaterialStageHistory history = new MaterialStageHistory();
         history.setMaterial(material);
         history.setMachine(machine);
         history.setDepartment(department);
         history.setProductionRecord(record);
-        history.setEnteredAt(record != null ? record.getRecordedAt() : java.time.OffsetDateTime.now());
+        history.setEnteredAt(enteredAt);
+        history.setLeftAt(leftAt);
         materialStageHistoryRepository.save(history);
+    }
+
+    private void syncManualPositionHistory(Material material) {
+        if (!productionRecordRepository.findAllByMaterialIdOrderByRecordedAtAsc(material.getId()).isEmpty()) {
+            materialStageHistoryRepository.findFirstByMaterialIdAndLeftAtIsNullOrderByEnteredAtDesc(material.getId())
+                    .ifPresent(history -> {
+                        history.setLeftAt(OffsetDateTime.now());
+                        materialStageHistoryRepository.save(history);
+                    });
+            createStageHistory(material, material.getCurrentMachine(), material.getCurrentDepartment(), null);
+            return;
+        }
+
+        materialStageHistoryRepository.deleteAllByMaterialId(material.getId());
+        createInitialHistoryIfNeeded(material);
+    }
+
+    private void createInitialHistoryIfNeeded(Material material) {
+        if (material.getCurrentDepartment() == null && material.getCurrentMachine() == null) {
+            return;
+        }
+        createStageHistory(
+                material,
+                material.getCurrentMachine(),
+                material.getCurrentDepartment(),
+                null,
+                material.getCreatedAt() != null ? material.getCreatedAt() : OffsetDateTime.now(),
+                null
+        );
     }
 
     private Department resolveDepartment(Long departmentId) {
@@ -202,4 +304,3 @@ public class MaterialService {
         }
     }
 }
-

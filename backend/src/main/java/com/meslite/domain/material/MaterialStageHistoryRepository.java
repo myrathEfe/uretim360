@@ -12,6 +12,7 @@ public interface MaterialStageHistoryRepository extends JpaRepository<MaterialSt
 
     List<MaterialStageHistory> findAllByProductionRecordId(Long productionRecordId);
 
+    void deleteAllByMaterialId(Long materialId);
+
     Optional<MaterialStageHistory> findFirstByMaterialIdAndLeftAtIsNullOrderByEnteredAtDesc(Long materialId);
 }
-
